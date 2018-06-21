@@ -1,0 +1,124 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Gabriel Quintanar"
+date: "19 de junio de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = 'center', fig.width = 12, 
+                      fig.height = 10)
+library(plyr); library(dplyr); library(ggplot2); library(knitr)
+library(caret); library(lubridate); library(gridExtra); library(RColorBrewer)
+library(rattle);
+```
+
+## Executive Summary
+
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: _http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har_ (see the section on the Weight Lifting Exercise Dataset).
+
+
+Data
+
+The training data for this project are available here:
+
+_https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv_
+
+The test data are available here:
+
+_https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv_
+
+
+## Exploratory Analysis
+
+As suggested, looking at the variable 'Classe' there are 5 different levels which correspond to the 5 different activities that the subjects did during the test. To understand which activities are, a quick review of the gyroscope variables may be helpful.
+```{r explAn}
+training <- read.csv("pml-training.csv", header = T, na.strings = c("", "NA"))
+testing <- read.csv("pml-testing.csv", header = T, c("", "NA"))
+
+training$cvtd_timestamp <-parse_date_time(training$cvtd_timestamp, "dmYHM")
+p1 <- ggplot() +
+    geom_line(data = training, aes(x = training$cvtd_timestamp, y = gyros_belt_x), color = "blue") +
+    geom_line(data = training, aes(x = training$cvtd_timestamp, y = gyros_belt_y), color = "red") +
+    geom_line(data = training, aes(x = training$cvtd_timestamp, y = gyros_belt_z), color = "black") +
+    labs(title = "Belt Gyroscope", x = "TimeStamp", y = "Gyroscope Grad") + scale_color_continuous(name = "Gyroscope",
+                                                                                                   labels = c("X", "Y", "Z"))
+p2 <- ggplot() +
+    geom_line(data = training, aes(x = training$cvtd_timestamp, y = gyros_arm_x), color = "blue") +
+    geom_line(data = training, aes(x = training$cvtd_timestamp, y = gyros_arm_y), color = "red") +
+    geom_line(data = training, aes(x = training$cvtd_timestamp, y = gyros_arm_z), color = "black") +
+    labs(title = "Arm Gyroscope", x = "TimeStamp", y = "Gyroscope Grad") + scale_color_continuous(name = "Gyroscope",
+                                                                                                   labels = c("X", "Y", "Z"))
+
+grid.arrange(p1, p2, nrow = 2)
+```
+
+As it can be seen, there 5 particular moments that can be distinguished during the timeline.
+Our job will be train a model to predict which activity the subject is doing. For that, is obvious that there are many variables that we do not need. We need to get rid of them to make a correlation analysis and determine which variables use in our model.
+
+## Training and Testing Sets
+
+```{r buildModel, cache=T}
+trainingComplete <- training[,colSums(is.na(training)) == 0]
+testingComplete <- testing[,colSums(is.na(testing)) == 0]
+trainingComplete <- trainingComplete[, -c(1:7)]
+testingComplete <- testingComplete[, -c(1:7)]
+corTrain <- cor(trainingComplete[, -53])
+corrplot::corrplot(corTrain, method = "circle", type = "lower", col = brewer.pal(n = 8, name = "RdYlBu"), cl.pos = "b",
+                   tl.pos = "l", tl.cex = 0.7) 
+set.seed(123)
+inTrain <- createDataPartition(trainingComplete$classe, p=0.6, list = F)
+tTrain <- trainingComplete[inTrain, ]
+tTest <- trainingComplete[-inTrain, ]
+
+```
+
+It makes sense that, to know a specified label, we used some classification techniques. In this case, a decision tree and a random forest will be used.
+
+
+```{r trainingModel, cache=T}
+set.seed(220)
+fitRF <- train(classe ~ ., data = tTrain, method = "rf")
+set.seed(223)
+fitDT <- train(classe ~ ., data = tTrain, method = "rpart", trControl = 
+                   trainControl(method = "repeatedcv", repeats = 5))
+
+fancyRpartPlot(fitDT$finalModel)
+
+predDT <- predict(fitDT, newdata = tTest)
+predRF <- predict(fitRF, newdata = tTest)
+
+cnfM1 <- confusionMatrix(predDT, tTest$classe)
+cnfM2 <- confusionMatrix(predRF, tTest$classe)
+cnfM1
+cnfM2
+```
+
+As it can be seen, the random forest model have the highest accuracy. So using a cross-validation with the decision tree model wasn't helpful. Just as a last try, we are going to build a _General Boosted Model_
+
+```{r, cache=T}
+set.seed(400)
+fitGBM <- train(classe ~ ., data = tTrain, method = "gbm", verbose = F)
+predGBM <- predict(fitGBM, newdata = tTest)
+
+cnfM3 <- confusionMatrix(predGBM, tTest$classe)
+kAccuracy <- as.data.frame(bind_rows(cnfM1$overall, cnfM2$overall, cnfM3$overall))
+row.names(kAccuracy) <- c("Decision Tree", "Random Forest", "GBM")
+cnfM3
+```
+
+These are the accuracy rates from the three models.
+`r kable(kAccuracy)`
+
+Even though the GBM model has an accuracy greater than 95%, the Random Forest model still has the greatest accuracy rate.
+
+
+## Predicting Test Data
+
+```{r}
+predFinal <- predict(fitRF, newdata = testingComplete$classe)
+
+plot(predFinal, col = "blue")
+```
+

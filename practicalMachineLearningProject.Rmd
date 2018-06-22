@@ -35,7 +35,7 @@ _https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv_
 As suggested, looking at the variable 'Classe' there are 5 different levels which correspond to the 5 different activities that the subjects did during the test. To understand which activities are, a quick review of the gyroscope variables may be helpful.
 ```{r explAn}
 training <- read.csv("pml-training.csv", header = T, na.strings = c("", "NA"))
-testing <- read.csv("pml-testing.csv", header = T, c("", "NA"))
+testing <- read.csv("pml-testing.csv", header = T, na.strings = c("", "NA"))
 
 training$cvtd_timestamp <-parse_date_time(training$cvtd_timestamp, "dmYHM")
 p1 <- ggplot() +
@@ -117,7 +117,7 @@ Even though the GBM model has an accuracy greater than 95%, the Random Forest mo
 ## Predicting Test Data
 
 ```{r}
-predFinal <- predict(fitRF, newdata = testingComplete$classe)
+predFinal <- predict(fitRF, newdata = testing)
 
 plot(predFinal, col = "blue")
 ```
